@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Machines in Masquerade VR</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:,">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<style>
+  body { margin: 0; overflow: hidden; background: #000; font: 13px/1.5 "Share Tech Mono", Consolas, monospace; color: #dffcff; }
+  #loading { position: fixed; inset: 0; display: grid; place-items: center; background: #02080c; font: 700 22px Orbitron, sans-serif; letter-spacing: 4px; color: #62f4ff; z-index: 5; }
+  #loading small { display: block; margin-top: 10px; font: 13px "Share Tech Mono", monospace; letter-spacing: 1px; color: rgba(98,244,255,0.6); text-align: center; }
+  #help { position: fixed; left: 50%; bottom: 64px; transform: translateX(-50%); width: min(900px, calc(100% - 32px)); box-sizing: border-box;
+          padding: 12px 16px; background: rgba(0, 18, 28, 0.82); border: 1px solid rgba(98, 244, 255, 0.4); border-radius: 6px; }
+  #help h1 { margin: 0 0 6px; font: 700 15px Orbitron, sans-serif; letter-spacing: 2px; color: #62f4ff; }
+  #help b { color: #ff4057; font-weight: normal; }
+  #help .row { display: grid; grid-template-columns: 92px 1fr; gap: 2px 10px; }
+  #help .dim { color: rgba(98, 244, 255, 0.6); }
+</style>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/",
+  "rapier": "https://cdn.jsdelivr.net/npm/@dimforge/rapier3d-compat@0.21.0/dist/rapier.mjs"
+} }
+</script>
+</head>
+<body>
+<div id="loading"><div>BUILDING THE CITY<small>physics, streets, buildings, traffic...</small></div></div>
+<div id="help">
+  <h1>MACHINES IN MASQUERADE</h1>
+  <div class="row">
+    <span class="dim">&nbsp; goal</span><span>Hold off the waves of hostile transformers. Everything breaks: shoot walls, flatten buildings, send cars flying. Grab power-ups (beams of light), some hide in crates, containers and buildings.</span>
+    <b>Rift S</b><span>Press ENTER VR. A robot · X car · Y jet · B jump / nitro / afterburner · push R-stick up: missile · L-stick click: tap camera, hold recenter · click both sticks: music</span>
+    <span class="dim">&nbsp; robot</span><span>L-stick walk · R-stick snap turn · triggers fire each hand</span>
+    <span class="dim">&nbsp; car</span><span>grips hold the wheel, turn your hands to steer (or L-stick) · R-trigger gas · L-trigger brake · R-stick click fire</span>
+    <span class="dim">&nbsp; jet</span><span>R-grip holds the stick: tilt to pitch/roll, twist to yaw, trigger fires · L-grip holds the throttle, push forward</span>
+    <b>Xbox</b><span>A robot · X car · Y jet · B jump / nitro / afterburner · L-stick move/steer/fly · R-stick turn/yaw · RT gas/throttle (robot: fire) · LT brake · RB fire · LB missile · View camera · Menu music</span>
+    <b>Keyboard</b><span>1 robot · 2 car · 3 jet · Space jump / nitro / afterburner · F fire · G missile · C camera · M music · H this help</span>
+    <span class="dim">&nbsp; moves</span><span>robot WASD + arrows · car W gas, S brake, A/D steer · jet W/S pitch, A/D roll, Q/E yaw, Shift throttle, Ctrl airbrake</span>
+  </div>
+</div>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
