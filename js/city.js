@@ -35,21 +35,25 @@ function addHole(p, r) {
 function buildingShader(mat) {
   mat.onBeforeCompile = sh => {
     Object.assign(sh.uniforms, holeUniforms);
-    sh.vertexShader = 'attribute vec2 aStyle;\nvarying vec2 vStyle;\nvarying vec3 vWP;\nvarying vec3 vObjN;\n'
-      + sh.vertexShader.replace('#include <begin_vertex>', WORLD_POS_VERT + '\n  vObjN = normal; vStyle = aStyle;');
-    sh.fragmentShader = `varying vec2 vStyle;\nvarying vec3 vWP;\nvarying vec3 vObjN;\nuniform vec4 uHoles[${MAX_HOLES}];\nuniform int uHoleCount;\nfloat winMask = 0.0;\n` + NOISE_GLSL
+    sh.vertexShader = 'attribute vec2 aStyle;\nattribute float aHoled;\nvarying vec2 vStyle;\nvarying float vHoled;\nvarying vec3 vWP;\nvarying vec3 vObjN;\n'
+      + sh.vertexShader.replace('#include <begin_vertex>', WORLD_POS_VERT + '\n  vObjN = normal; vStyle = aStyle; vHoled = aHoled;');
+    sh.fragmentShader = `varying vec2 vStyle;\nvarying float vHoled;\nvarying vec3 vWP;\nvarying vec3 vObjN;\nuniform vec4 uHoles[${MAX_HOLES}];\nuniform int uHoleCount;\nfloat winMask = 0.0;\n` + NOISE_GLSL
       + sh.fragmentShader
         .replace('#include <color_fragment>', `#include <color_fragment>
   {
     float scorch = 0.0;
-    for (int i = 0; i < ${MAX_HOLES}; i++) { // blast holes: jagged edges ringed with scorch
-      if (i >= uHoleCount) break;
-      vec4 h = uHoles[i];
-      float d = distance(vWP, h.xyz);
-      if (d > h.w * 2.3) continue;
-      float rr = h.w * (0.7 + 0.5 * vnoise(vWP.xy * 1.3 + vWP.zy * 1.1 + h.xz));
-      if (d < rr) discard;
-      scorch = max(scorch, 1.0 - smoothstep(rr, h.w * 2.3, d));
+    if (vHoled < 0.5) { // never hit: no holes to cut, and nothing inside to see
+      if (!gl_FrontFacing) discard;
+    } else {
+      for (int i = 0; i < ${MAX_HOLES}; i++) { // blast holes: jagged edges ringed with scorch
+        if (i >= uHoleCount) break;
+        vec4 h = uHoles[i];
+        float d = distance(vWP, h.xyz);
+        if (d > h.w * 2.3) continue;
+        float rr = h.w * (0.7 + 0.5 * vnoise(vWP.xy * 1.3 + vWP.zy * 1.1 + h.xz));
+        if (d < rr) discard;
+        scorch = max(scorch, 1.0 - smoothstep(rr, h.w * 2.3, d));
+      }
     }
     float far = smoothstep(450.0, 1400.0, distance(vWP, cameraPosition));
     if (!gl_FrontFacing) { // seen through a hole: bare concrete and floor slabs
@@ -157,7 +161,7 @@ export function createCity(scene, props) {
   const stdc = (c, m = 0.2, r = 0.7) => new THREE.MeshStandardMaterial({ color: c, metalness: m, roughness: r });
 
   const B = {
-    bld: new Batch(box1(), bldMat, { tint: true, attrs: { aStyle: 2 } }),
+    bld: new Batch(box1(), bldMat, { tint: true, attrs: { aStyle: 2, aHoled: 1 } }), // aHoled: 1 once shot, so the shader cuts holes in it
     roof: new Batch(prismGeometry(), new THREE.MeshStandardMaterial({ roughness: 0.8, metalness: 0.05 }), { tint: true }),
     parapet: new Batch(box1(), stdc(0x8e9093, 0.25, 0.75), { shadow: false }),
     unit: new Batch(box1(), stdc(0x9a9ca0, 0.5, 0.5)),
@@ -473,6 +477,11 @@ export function createCity(scene, props) {
     b.hp -= amount;
     if (point && holeR > 0) {
       addHole(point, holeR);
+      if (!b.holed) {
+        b.holed = true;
+        const a = B.bld.geo.getAttribute('aHoled');
+        a.array[b.i] = 1; a.addUpdateRange(b.i, 1); a.needsUpdate = true;
+      }
       const n = normal ?? V(0, 1, 0);
       for (let k = Math.min(4, 1 + Math.floor(holeR)); k > 0; k--)
         spawnDebris(point.clone().addScaledVector(n, 0.4), V(0.2 + R() * holeR * 0.4, 0.2 + R() * holeR * 0.3, 0.2 + R() * holeR * 0.4), b.color,

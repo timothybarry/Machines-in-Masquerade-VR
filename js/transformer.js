@@ -120,7 +120,7 @@ export function createTransformers(scene, maxUnits) {
 
   const free = Array.from({ length: maxUnits }, (_, i) => maxUnits - 1 - i);
   const units = new Set();
-  const m4 = new THREE.Matrix4(), bodyM = new THREE.Matrix4(), qa = new THREE.Quaternion(), piv = V(), X = V(1, 0, 0), Y = V(0, 1, 0);
+  const m4 = new THREE.Matrix4(), bodyM = new THREE.Matrix4(), qa = new THREE.Quaternion(), qi = new THREE.Quaternion(), piv = V(), X = V(1, 0, 0), Y = V(0, 1, 0);
   const P = V(), Q = new THREE.Quaternion(), S = V(), col = new THREE.Color();
 
   function spawn(teamName, scale = 1) {
@@ -144,8 +144,10 @@ export function createTransformers(scene, maxUnits) {
       flames: [{ on: false, m: new THREE.Matrix4(), color: new THREE.Color() }, { on: false, m: new THREE.Matrix4(), color: new THREE.Color() }],
       bodyPos: V(), bodyQuat: new THREE.Quaternion(),
       startTransform() { for (const p of parts) { p.from.pos.copy(p.pos); p.from.quat.copy(p.quat); p.from.scale.copy(p.scale); } },
-      // s: the body state; fx: { throttle, afterburner, nitro, jets, gearDown }
-      update(dt, s, bq, fx, cockpit = false) {
+      // s: the body state; fx: { throttle, afterburner, nitro, jets, gearDown };
+      // avoid: [[point, radius], ...] in the body's frame: parts within radius of a point are hidden
+      // (the player's head and hands, so you never see the inside of your own armour)
+      update(dt, s, bq, fx, cockpit = false, avoid = null) {
         const hide = cockpit ? HIDE_IN_COCKPIT[s.mode] : null;
         const settled = s.T >= TTOTAL;
         const hs = Math.hypot(s.vel.x, s.vel.z);
@@ -168,6 +170,7 @@ export function createTransformers(scene, maxUnits) {
           }
           if (t.gear && s.mode === 'jet') p.scale.multiplyScalar(u.gear);
           p.visible = !(hide && hide.includes(t.name));
+          if (avoid && p.visible) for (const [pt, r] of avoid) if (boxDistance(p, pt) < r) { p.visible = false; break; }
         }
         u.bodyPos.copy(s.pos);
         if (!cockpit) u.bodyPos.y += Math.abs(Math.sin(u.walkPhase)) * 0.12 * u.walkAmt * scale;
@@ -216,6 +219,13 @@ export function createTransformers(scene, maxUnits) {
     };
     units.add(u);
     return u;
+  }
+
+  // How far a point is from a part's box (0 inside it). Wheels and cones fit inside the same unit box.
+  function boxDistance(p, pt) {
+    piv.subVectors(pt, p.pos).applyQuaternion(qi.copy(p.quat).invert());
+    const dx = Math.max(0, Math.abs(piv.x) - Math.abs(p.scale.x) / 2), dy = Math.max(0, Math.abs(piv.y) - Math.abs(p.scale.y) / 2), dz = Math.max(0, Math.abs(piv.z) - Math.abs(p.scale.z) / 2);
+    return Math.hypot(dx, dy, dz);
   }
 
   function walk(u, p) {

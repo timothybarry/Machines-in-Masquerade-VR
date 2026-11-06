@@ -5,7 +5,7 @@ import * as THREE from 'three';
 import { V, DEG, UP, clamp, yq, headingOf } from './util.js';
 import { GRAV, ROBOT_SPEED } from './state.js';
 import { groundAt, pushOut } from './collision.js';
-import { terrainNormal } from './terrain.js';
+import { terrainHeight, terrainNormal } from './terrain.js';
 
 const IDENT = new THREE.Quaternion(), tq = new THREE.Quaternion(), te = new THREE.Euler(), tn = V();
 
@@ -37,16 +37,20 @@ function moveAndCollide(s, dt, r, step) {
   let landed = 0;
   if (s.pos.y <= g) {
     if (!s.grounded && s.vel.y < -10) landed = -s.vel.y;
+    if (s.grounded && g - s.pos.y > 0.15) { // stepped up onto a kerb or a ledge (not a hill): the camera catches up smoothly
+      const tg = terrainHeight(s.pos.x, s.pos.z), rise = g - Math.max(s.pos.y, tg);
+      if (g > tg + 0.01 && rise > 0.15) s.eyeDrop = Math.max(s.eyeDrop - rise, -step);
+    }
     s.pos.y = g; s.vel.y = Math.max(s.vel.y, 0);
   }
   s.grounded = s.pos.y <= g + 0.05;
   return { wall, landed };
 }
 
-// o: { snapTurn, turbo (jets never run dry), speedMul }
+// o: { snapTurn (radians per snap; 0 turns smoothly), turbo (jets never run dry), speedMul }
 export function stepRobot(s, dt, c, o = {}) {
   if (o.snapTurn) { // snap turns: smooth turning in a headset makes people sick
-    if (Math.abs(c.rx) > 0.7 && !s.snapped) { s.yaw -= Math.sign(c.rx) * 30 * DEG; s.snapped = true; }
+    if (Math.abs(c.rx) > 0.7 && !s.snapped) { s.yaw -= Math.sign(c.rx) * o.snapTurn; s.snapped = true; }
     else if (Math.abs(c.rx) < 0.3) s.snapped = false;
   } else s.yaw -= c.rx * 2.2 * dt;
   const face = s.yaw + s.lookYaw, sn = Math.sin(face), cs = Math.cos(face);
@@ -95,9 +99,10 @@ export function stepCar(s, dt, c, o = {}) {
   return { ...r, wallSpeed };
 }
 
+// o: { turbo, rollRate (radians/s at full stick; 2.8 = 160 degrees/s) }
 export function stepJet(s, dt, c, o = {}) {
   const q = s.quat;
-  let pitch = c.my * 1.4, roll = -c.mx * 2.8, yaw = -c.rx * 0.7;
+  let pitch = c.my * 1.4, roll = -c.mx * (o.rollRate ?? 2.8), yaw = -c.rx * 0.7;
   if (s.grounded) { roll = 0; yaw = -(c.mx + c.rx) * 0.9; if (s.speed < 50) pitch = Math.min(pitch, 0); }
   q.multiply(tq.setFromEuler(te.set(pitch * dt, yaw * dt, roll * dt, 'YXZ')));
   if (!s.grounded) q.premultiply(tq.setFromAxisAngle(UP, V(1, 0, 0).applyQuaternion(q).y * 0.9 * dt)); // banking turns the nose
@@ -123,7 +128,7 @@ export function stepJet(s, dt, c, o = {}) {
     if (!s.grounded) landed = -s.vel.y;
     s.pos.y = g;
     e.x = s.speed < 50 ? 0 : Math.max(e.x, 0); e.z = 0;
-    q.setFromEuler(e);
+    q.slerp(tq.setFromEuler(e), 1 - Math.exp(-dt / 0.07)); // settles level over about 0.2 s, not in one jolt
   }
   s.grounded = s.pos.y <= g + 0.05;
   return { landed };

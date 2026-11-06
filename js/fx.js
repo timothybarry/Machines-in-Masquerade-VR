@@ -17,6 +17,9 @@ void main() {
   gl_Position = projectionMatrix * mv;
   vUv = (position.xy * 0.5 + 0.5 + vec2(mod(iMisc.z, 2.0), floor(iMisc.z / 2.0))) * 0.5;
   vColor = iColor;
+  // anything that would cover more than ~20-40 degrees of view (a blast at your face, a muzzle at your
+  // hand in a headset) fades out instead of flashing the whole view
+  vColor.a *= 1.0 - smoothstep(0.35, 0.9, iMisc.x / max(-mv.z, 0.01));
   vFog = smoothstep(uFog.x, uFog.y, -mv.z);
 }`;
 const frag = additive => `
@@ -80,7 +83,7 @@ class Particles {
       M[i * 3] = p.s0 + (p.s1 - p.s0) * t; M[i * 3 + 1] = p.rot; M[i * 3 + 2] = p.tile;
     }
     this.geo.instanceCount = this.n;
-    this.aPos.needsUpdate = this.aCol.needsUpdate = this.aMisc.needsUpdate = true;
+    if (this.n > 0) for (const a of [this.aPos, this.aCol, this.aMisc]) { a.addUpdateRange(0, this.n * a.itemSize); a.needsUpdate = true; } // only the live ones
   }
 }
 

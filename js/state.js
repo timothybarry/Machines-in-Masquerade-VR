@@ -9,7 +9,7 @@ export const MAX_HP = 100, MAX_SHIELD = 100, MAX_MISSILES = 20;
 export const SPAWN = V(0, 0, 300);
 
 // The game's systems, filled in by main.js so modules can reach each other without import cycles:
-// scene, camera, rig, renderer, fx, city, props, traffic, weapons, enemies, powerups, hud, player.
+// scene, camera, rig, renderer, fx, city, props, traffic, weapons, enemies, powerups, hud, comfort, player.
 export const G = {};
 
 // Saved under 'mim.'; 'rid.' is the prefix from before the rename, still read so old settings survive.
@@ -19,7 +19,12 @@ function pref(name, fallback) {
 export function savePref(name, value) {
   try { localStorage.setItem('mim.' + name, JSON.stringify(value)); } catch { /* private window: settings just don't stick */ }
 }
-export const settings = { view: 'cockpit', music: pref('music', true), help: pref('help', true) };
+export const settings = {
+  view: 'cockpit', music: pref('music', true), help: pref('help', true),
+  // headset comfort: the tunnel vignette when the world moves you ('off' | 'low' | 'high'), the snap-turn
+  // angle in degrees, and a gentler jet roll (90 degrees/s instead of 160)
+  vignette: pref('vr.vignette', 'low'), snap: pref('vr.snap', 30), gentleRoll: pref('vr.gentleRoll', false),
+};
 
 // A body that can be a robot, car or jet. The player's is `st`; each enemy has its own.
 export function newBody(pos, yaw = 0) {
@@ -28,7 +33,7 @@ export function newBody(pos, yaw = 0) {
     pos: pos.clone(), vel: V(), yaw, quat: new THREE.Quaternion().setFromAxisAngle(V(0, 1, 0), yaw), tilt: new THREE.Quaternion(),
     speed: 0, steer: 0, lever: 0, throttle: 0, grounded: true,
     fuel: 2.5, nitro: 1, jets: false, boosting: false, actionHeld: false,
-    lookYaw: 0, lookYawS: 0, snapped: false, scale: 1,
+    lookYaw: 0, lookYawS: 0, snapped: false, scale: 1, eyeDrop: 0,
   };
 }
 

@@ -3,7 +3,7 @@
 // and enemies are kinematic bodies, so they shove the loose stuff around as they move.
 import * as THREE from 'three';
 import RAPIER from 'rapier';
-import { V, clamp } from './util.js';
+import { V, clamp, uploadInstances } from './util.js';
 
 let world = null;
 const pools = [];
@@ -106,10 +106,7 @@ export class PhysPool {
       }
       n++;
     }
-    for (const m of this.meshes) {
-      m.count = n; m.instanceMatrix.needsUpdate = true;
-      if (m.instanceColor) m.instanceColor.needsUpdate = true;
-    }
+    for (const m of this.meshes) uploadInstances(m, n);
   }
   // Pushes every body within radius away from the centre; power is roughly the speed it adds up close.
   blast(center, radius, power) {

@@ -9,10 +9,14 @@ const MUSIC_VOL = 0.26;
 const mtof = m => 440 * 2 ** ((m - 69) / 12);
 
 let actx = null, sfxBus, musicBus, echo, eOsc, eGain, nFilter, nGain, noiseBuf, comp;
-let step = 0, nextT = 0;
+let step = 0, nextT = 0, paused = false;
+
+// The headset test mode (?emulate) stays silent unless the address also has &sound.
+const SILENT = (() => { const q = new URLSearchParams(location.search); return q.has('emulate') && !q.has('sound'); })();
 
 export function audioInit() {
-  if (actx) { if (!document.hidden) actx.resume(); return; }
+  if (SILENT) return;
+  if (actx) { if (!document.hidden && !paused) actx.resume(); return; }
   actx = new AudioContext();
   comp = actx.createDynamicsCompressor(); comp.threshold.value = -14; comp.ratio.value = 6; // big explosions don't clip
   const out = actx.createGain(); out.gain.value = 0.75;
@@ -39,8 +43,14 @@ export function audioInit() {
   n.connect(nFilter).connect(nGain).connect(sfxBus); n.start();
 
   // A hidden tab stops animating, so the engine would hold its last note forever: go quiet instead.
-  document.addEventListener('visibilitychange', () => document.hidden ? actx.suspend() : actx.resume());
+  document.addEventListener('visibilitychange', () => document.hidden || paused ? actx.suspend() : actx.resume());
   setInterval(schedule, 25);
+}
+// The headset can stop the game while the page stays visible (headset off, the Oculus menu open).
+export function setPaused(p) {
+  if (p === paused) return;
+  paused = p;
+  if (actx) p || document.hidden ? actx.suspend() : actx.resume();
 }
 
 export function toggleMusic() {

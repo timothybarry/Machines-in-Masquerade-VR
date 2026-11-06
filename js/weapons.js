@@ -2,7 +2,7 @@
 // whatever set it off: it lights up, shoves the debris, and damages buildings, props, traffic,
 // enemies and you.
 import * as THREE from 'three';
-import { V, clamp, segmentSphere } from './util.js';
+import { V, clamp, segmentSphere, uploadInstances } from './util.js';
 import { G, st } from './state.js';
 import { segmentHit } from './collision.js';
 import { blastAll } from './physics.js';
@@ -33,18 +33,19 @@ export function createWeapons(scene) {
 
   const weapons = {
     shots,
-    // owner: 'player' or 'enemy'; dmgMul for overcharge; target: an enemy (or 'player') for homing shots
-    fire(type, pos, dir, { owner = 'player', inherit = null, dmgMul = 1, target = null } = {}) {
+    // owner: 'player' or 'enemy'; dmgMul for overcharge; target: an enemy (or 'player') for homing shots;
+    // muzzle scales the flash (the hand guns in a headset fire half a metre from your eyes)
+    fire(type, pos, dir, { owner = 'player', inherit = null, dmgMul = 1, target = null, muzzle = 1 } = {}) {
       const T = SHOTS[type];
       if (shots.length > 400) shots.shift();
       const vel = dir.clone().normalize().multiplyScalar(T.speed);
       if (inherit) vel.add(inherit);
       shots.push({ type, T, pos: pos.clone(), vel, life: T.life, owner, dmgMul, target, trailT: 0 });
-      G.fx.muzzle(pos, dir.clone().normalize(), T.color, T.size * 1.3);
+      G.fx.muzzle(pos, dir.clone().normalize(), T.color, T.size * 1.3 * muzzle);
       G.audio?.shot(type, pos);
     },
 
-    // One blast, whatever caused it. o: { radius, damage, bld, hole, scale, owner, color }
+    // One blast, whatever caused it. o: { radius, damage, bld, hole, scale, owner, color, noPlayer (you were hit directly, so already hurt) }
     explode(pos, o) {
       const r = o.radius;
       if (o.plasma) G.fx.plasmaBurst(pos, o.color, o.scale ?? r / 8);
@@ -56,7 +57,7 @@ export function createWeapons(scene) {
       G.traffic.blast(pos, r * 1.2);
       if (o.bld) G.city.blast(pos, r, o.bld, o.hole ?? 0);
       if (o.owner !== 'enemy') G.enemies.blast(pos, r, o.damage);
-      if (o.owner !== 'player') { // the player's own shots never hurt them
+      if (o.owner !== 'player' && !o.noPlayer) { // the player's own shots never hurt them
         const s = G.player.sphere();
         const d = s.c.distanceTo(pos) - s.r;
         if (d < r) G.player.damage(o.damage * clamp(1 - d / r, 0, 1), pos);
@@ -107,7 +108,14 @@ export function createWeapons(scene) {
           const e = G.enemies.hitSegment(prev, s.pos); if (e) take(e.t, 'enemy', e.enemy, e.point);
         } else {
           const ps = G.player.sphere(), t = segmentSphere(prev, s.pos, ps.c, ps.r);
-          if (t >= 0 && !st.dead) take(t, 'player', null, prev.clone().lerp(s.pos, t));
+          // the flash goes on your hull facing the shooter, not at its middle (where your eyes are, in the car),
+          // and never high up the side (where your eyes are, in the robot)
+          if (t >= 0 && !st.dead) {
+            const hy = Math.min(-dir.y, 0.3), h = V(-dir.x, 0, -dir.z); // toward the shooter, at most ~17 degrees up
+            if (h.lengthSq() < 1e-8) h.set(0, 0, 1);
+            h.normalize().multiplyScalar(Math.sqrt(1 - hy * hy)).setY(hy);
+            take(t, 'player', null, ps.c.clone().addScaledVector(h, ps.r));
+          }
         }
         const p = G.props.hitSegment(prev, s.pos); if (p) take(p.t, 'prop', p.prop, p.point);
         const c = G.traffic.hitSegment(prev, s.pos); if (c) take(c.t, 'car', c.car, c.point);
@@ -127,8 +135,7 @@ export function createWeapons(scene) {
           missileMesh.setMatrixAt(nm++, m4.compose(s.pos, q, S.set(1, 1, 1)));
         }
       }
-      streaks.count = ns; streaks.instanceMatrix.needsUpdate = true; if (streaks.instanceColor) streaks.instanceColor.needsUpdate = true;
-      missileMesh.count = nm; missileMesh.instanceMatrix.needsUpdate = true;
+      uploadInstances(streaks, ns); uploadInstances(missileMesh, nm);
     },
   };
 
@@ -136,12 +143,12 @@ export function createWeapons(scene) {
     const T = s.T, dmg = T.dmg * s.dmgMul, dir = s.vel.clone().normalize();
     const point = hit.point, normal = hit.normal ?? dir.clone().negate();
     if (kind === 'enemy') { G.enemies.damage(target, dmg, point); G.hud?.hitMarker(target.hp <= 0); }
-    else if (kind === 'player') G.player.damage(dmg, s.pos.clone().sub(s.vel));
+    else if (kind === 'player') G.player.damage(dmg * (T.splash ? 1.6 : 1), s.pos.clone().sub(s.vel)); // a direct hit takes its splash in full too
     else if (kind === 'prop') G.props.damage(target, dmg * 1.5, dir, point);
     else if (kind === 'car') G.traffic.damage(target, dmg * 1.5, dir);
     else if (kind === 'solid') G.city.hitSolid(hit.solid, point, normal, T.bld * s.dmgMul, T.splash ? 0 : T.hole);
     if (T.splash) {
-      weapons.explode(point.clone().addScaledVector(normal, 0.5), { radius: T.splash, damage: dmg * 0.6, bld: T.bld * s.dmgMul, hole: T.hole, owner: s.owner, plasma: T.orb, color: T.color, scale: T.splash / 9 });
+      weapons.explode(point.clone().addScaledVector(normal, 0.5), { radius: T.splash, damage: dmg * 0.6, bld: T.bld * s.dmgMul, hole: T.hole, owner: s.owner, plasma: T.orb, color: T.color, scale: T.splash / 9, noPlayer: kind === 'player' });
     } else {
       G.fx.impact(point, normal, T.color, T.size);
       if (kind === 'ground') G.fx.scorch(point, 0.8);

@@ -1,7 +1,7 @@
 // Civilian traffic: cars drive the street grid on the right, turning at junctions on smooth curves and
 // braking for each other and for you. Ram one, shoot it or blast it and it becomes a physics wreck.
 import * as THREE from 'three';
-import { V, clamp, makeRand, segmentSphere } from './util.js';
+import { V, clamp, makeRand, segmentSphere, uploadInstances } from './util.js';
 import { G } from './state.js';
 import { CELL } from './collision.js';
 
@@ -174,7 +174,7 @@ export function createTraffic(scene, props) {
         meshes.forEach((m, k) => { m.setMatrixAt(n, m4); if (T.parts[k].tint) m.setColorAt(n, c.color); });
         n++;
       }
-      for (const m of meshes) { m.count = n; m.instanceMatrix.needsUpdate = true; if (m.instanceColor) m.instanceColor.needsUpdate = true; }
+      for (const m of meshes) uploadInstances(m, n);
     },
   };
 }

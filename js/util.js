@@ -16,6 +16,14 @@ export const yawTo = (a, b) => Math.atan2(-(b.x - a.x), -(b.z - a.z));
 // Signed smallest turn from angle a to angle b.
 export const angleDiff = (a, b) => { let d = (b - a) % (2 * Math.PI); if (d > Math.PI) d -= 2 * Math.PI; if (d < -Math.PI) d += 2 * Math.PI; return d; };
 
+// Sends only the first n instances of an InstancedMesh to the GPU, and nothing (hidden) when there are none.
+export function uploadInstances(m, n) {
+  m.count = n; m.visible = n > 0;
+  if (!n) return;
+  m.instanceMatrix.addUpdateRange(0, n * 16); m.instanceMatrix.needsUpdate = true;
+  if (m.instanceColor) { m.instanceColor.addUpdateRange(0, n * 3); m.instanceColor.needsUpdate = true; }
+}
+
 // Seeded random (mulberry32), so the world is laid out the same on every load.
 export function makeRand(seed) {
   let s = seed;
