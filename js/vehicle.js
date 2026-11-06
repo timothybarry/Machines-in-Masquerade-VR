@@ -47,21 +47,31 @@ function moveAndCollide(s, dt, r, step) {
   return { wall, landed };
 }
 
-// o: { snapTurn (radians per snap; 0 turns smoothly), turbo (jets never run dry), speedMul }
-export function stepRobot(s, dt, c, o = {}) {
+// Turns the body from the right stick, and returns where the left stick points on the ground,
+// relative to where you look (a vector of length up to 1).
+function turnAndAim(s, dt, c, o) {
   if (o.snapTurn) { // snap turns: smooth turning in a headset makes people sick
     if (Math.abs(c.rx) > 0.7 && !s.snapped) { s.yaw -= Math.sign(c.rx) * o.snapTurn; s.snapped = true; }
     else if (Math.abs(c.rx) < 0.3) s.snapped = false;
   } else s.yaw -= c.rx * 2.2 * dt;
   const face = s.yaw + s.lookYaw, sn = Math.sin(face), cs = Math.cos(face);
-  let wx = sn * c.my + cs * c.mx, wz = cs * c.my - sn * c.mx; // walk the way you look
+  let wx = sn * c.my + cs * c.mx, wz = cs * c.my - sn * c.mx;
   const len = Math.hypot(wx, wz);
   if (len > 1) { wx /= len; wz /= len; }
-  const top = ROBOT_SPEED * (o.speedMul ?? 1), acc = (s.grounded ? 45 : 10) * dt;
+  return [wx, wz];
+}
+// Eases the horizontal velocity toward (wx, wz) * top at up to acc m/s².
+function walkToward(s, dt, wx, wz, top, acc) {
   let dx = wx * top - s.vel.x, dz = wz * top - s.vel.z;
-  const dl = Math.hypot(dx, dz);
-  if (dl > acc) { dx *= acc / dl; dz *= acc / dl; }
+  const dl = Math.hypot(dx, dz), a = acc * dt;
+  if (dl > a) { dx *= a / dl; dz *= a / dl; }
   s.vel.x += dx; s.vel.z += dz;
+}
+
+// o: { snapTurn (radians per snap; 0 turns smoothly), turbo (jets never run dry), speedMul }
+export function stepRobot(s, dt, c, o = {}) {
+  const [wx, wz] = turnAndAim(s, dt, c, o); // walk the way you look
+  walkToward(s, dt, wx, wz, ROBOT_SPEED * (o.speedMul ?? 1), s.grounded ? 45 : 10);
   s.vel.y -= GRAV * dt;
   if (s.grounded) s.fuel = Math.min(2.5, s.fuel + dt);
   s.jets = false;
@@ -134,17 +144,41 @@ export function stepJet(s, dt, c, o = {}) {
   return { landed };
 }
 
-// Where a body's middle is and how big it is, for hits.
+// The flight suit: the robot shrunk to human size, with a jet in each palm.
+// thrust: m/s² from one hand at full trigger; grav: its own gravity (lighter than the robot's, so
+// hovering is easy); drag is light at walking pace and firm at speed, so both hands flat out top out
+// near 110 m/s (about 400 km/h) and one hand near 75 m/s.
+export const SUIT = { scale: 0.37, thrust: 22, grav: 12, drag: 0.1, drag2: 0.0027, walk: 6 };
+const tv = V();
+// c.thrust: the hands' push in m/s², in the world's frame (from the sticks and keys on a screen);
+// c.mx / c.my walk you on the ground; c.rx turns you. Returns { landed, wall, thrusting }.
+export function stepSuit(s, dt, c, o = {}) {
+  const [wx, wz] = turnAndAim(s, dt, c, o);
+  const a = tv.copy(c.thrust);
+  const lift = a.y;
+  a.y -= SUIT.grav;
+  a.addScaledVector(s.vel, -(SUIT.drag + SUIT.drag2 * s.vel.length()));
+  // hovering: when the jets about balance gravity, damp the up-and-down speed so you hang steady
+  const balance = clamp(1 - Math.abs(lift - SUIT.grav) / (0.5 * SUIT.grav), 0, 1);
+  a.y -= s.vel.y * 2.5 * balance;
+  s.vel.addScaledVector(a, dt);
+  if (s.grounded && lift < SUIT.grav) walkToward(s, dt, wx, wz, SUIT.walk, 30); // feet on the ground: walk
+  s.tilt.slerp(IDENT, 1 - Math.exp(-4 * dt));
+  const r = moveAndCollide(s, dt, 0.6, 0.6);
+  return { ...r, thrusting: c.thrust.lengthSq() > 1 };
+}
+
+// Where a body's middle is and how big it is, for hits. (The suit is the robot, smaller.)
 export function hitSphere(s, out = V()) {
   const k = s.scale;
-  if (s.mode === 'robot') return { c: out.set(s.pos.x, s.pos.y + 3 * k, s.pos.z), r: 2.8 * k };
+  if (s.mode === 'robot' || s.mode === 'suit') return { c: out.set(s.pos.x, s.pos.y + 3 * k, s.pos.z), r: 2.8 * k };
   if (s.mode === 'car') return { c: out.set(s.pos.x, s.pos.y + 0.7 * k, s.pos.z), r: 2.6 * k };
   return { c: out.set(s.pos.x, s.pos.y + 1, s.pos.z), r: 5 * k };
 }
 // The body's collision box half-extents for the physics engine (robot, car, jet).
 export function kinShape(s) {
   const k = s.scale;
-  if (s.mode === 'robot') return [1.3 * k, 3 * k, 0.8 * k];
+  if (s.mode === 'robot' || s.mode === 'suit') return [1.3 * k, 3 * k, 0.8 * k];
   if (s.mode === 'car') return [1.0 * k, 0.6 * k, 2.3 * k];
   return [2.5 * k, 0.8 * k, 4 * k];
 }

@@ -74,6 +74,7 @@ const HIDE_IN_COCKPIT = {
   car: ['head', 'visor', 'face', 'crest', 'roof', 'windshield', 'rearGlass'],
   jet: ['head', 'visor', 'face', 'crest', 'windshield', 'grille'],
 };
+HIDE_IN_COCKPIT.suit = HIDE_IN_COCKPIT.robot; // the flight suit is the robot at human size (it takes the robot's poses)
 const ROLE = { thigh: 'upper', fin: 'upper', intake: 'upper', shin: 'lower', foot: 'lower', wheelR: 'lower', knee: 'lower', upperArm: 'arm', forearm: 'arm', fist: 'arm', gun: 'arm' };
 const PIVOT = { hip: V(0.45, 2.7, 0), knee: V(0.5, 1.6, 0), shoulder: V(1.5, 4.55, 0) };
 const GEAR = ['wheelF', 'wheelR', 'foot'];
@@ -151,14 +152,15 @@ export function createTransformers(scene, maxUnits) {
         const hide = cockpit ? HIDE_IN_COCKPIT[s.mode] : null;
         const settled = s.T >= TTOTAL;
         const hs = Math.hypot(s.vel.x, s.vel.z);
-        const walking = s.mode === 'robot' && settled && s.grounded ? clamp(hs / (ROBOT_SPEED * scale), 0, 1) : 0;
+        const humanoid = s.mode === 'robot' || s.mode === 'suit';
+        const walking = humanoid && settled && s.grounded ? clamp(hs / (ROBOT_SPEED * scale), 0, 1) : 0;
         u.walkAmt += (walking - u.walkAmt) * (1 - Math.exp(-8 * dt));
         u.walkPhase += dt * hs * 0.75 / scale;
         if (s.mode === 'car') u.spin += dt * s.speed / (0.36 * scale);
         u.gear += ((s.mode !== 'jet' || fx.gearDown ? 1 : 0.02) - u.gear) * (1 - Math.exp(-3 * dt));
         const steerYaw = s.mode === 'car' ? s.steer * 0.45 : 0;
         for (const p of parts) {
-          const t = p.t, k = ease(clamp((s.T - t.delay) / TDUR, 0, 1)), to = t.poses[s.mode];
+          const t = p.t, k = ease(clamp((s.T - t.delay) / TDUR, 0, 1)), to = t.poses[s.mode] ?? t.poses.robot;
           p.pos.lerpVectors(p.from.pos, to.pos, k);
           p.pos.y += Math.sin(Math.PI * k) * 0.35; // parts lift clear as they swing
           p.quat.slerpQuaternions(p.from.quat, to.quat, k);
@@ -176,7 +178,7 @@ export function createTransformers(scene, maxUnits) {
         if (!cockpit) u.bodyPos.y += Math.abs(Math.sin(u.walkPhase)) * 0.12 * u.walkAmt * scale;
         u.bodyQuat.copy(bq);
         // flames: jet engines, car nitro from the exhausts, robot jump jets under the feet
-        const kind = s.mode === 'jet' && settled ? 'jet' : s.mode === 'car' && fx.nitro ? 'car' : s.mode === 'robot' && fx.jets ? 'robot' : null;
+        const kind = s.mode === 'jet' && settled ? 'jet' : s.mode === 'car' && fx.nitro ? 'car' : humanoid && fx.jets ? 'robot' : null;
         u.flames.forEach((f, i) => {
           f.on = !!kind;
           if (!kind) return;

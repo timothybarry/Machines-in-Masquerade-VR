@@ -15,7 +15,7 @@ const COL = { main: '#62f4ff', dim: 'rgba(98,244,255,0.45)', faint: 'rgba(98,244
 const FONT = '"Orbitron", "Segoe UI", sans-serif', MONO = '"Share Tech Mono", Consolas, monospace';
 const VR_W = 1024, VR_H = 768, VR_DIST = 2, VR_PW = 2.4, VR_PPM = VR_W / VR_PW;
 const FAR = 600; // metres to the world-locked panel
-const MODE_NAME = { robot: 'ROBOT', car: 'SUPERCAR', jet: 'FIGHTER JET' };
+const MODE_NAME = { robot: 'ROBOT', car: 'SUPERCAR', jet: 'FIGHTER JET', suit: 'FLIGHT SUIT' };
 const hexColor = n => '#' + n.toString(16).padStart(6, '0');
 
 // Where each block goes: on a screen (the original layout) and in VR (pulled in, scaled up).
@@ -28,7 +28,7 @@ const DESK = {
 // In VR the side blocks sit high (vitals left, wave and missiles right), the middle column below them
 // takes the passing text (banner, toasts, messages), and the car and jet readouts sit under the middle.
 const VRL = {
-  vr: true, glow: 0, heading: [0, -262, 1.15], mode: [-352, -248, 1.1], vitals: [-352, -212, 1.2], score: [352, -250, 1.2],
+  vr: true, glow: 0, heading: [0, -262, 1.15], mode: [-380, -248, 1], vitals: [-352, -212, 1.2], score: [352, -250, 1.2],
   weapon: null, timers: [340, 170, 1.2], map: [-268, 210, 78, 1.4], banner: [0, -165, 1.1], toast: [0, -95, 1.25], toasts: 1,
   msg: [0, -62, 1.25], deadMsg: [0, 110, 1.25], transform: [0, 12, 1.1], dead: [0, -10, 1.3], hurtR: 170, jet: [0, 80, 1.35], car: [0, 74, 1.4],
   edge: [250, 180, 300, 220],
@@ -106,7 +106,7 @@ export function createHud({ renderer, rig, camera, scene }) {
   // The reticle sits where your head points (that's where the robot's head-aimed shots and missile
   // lock go); the gun cross along the body's nose; a hit flashes on whichever one is showing.
   function placeMarks(show, d) {
-    const robot = d.mode === 'robot', cross = d.mode === 'jet' ? jetCross : carCross;
+    const robot = d.mode === 'robot' || d.mode === 'suit', cross = d.mode === 'jet' ? jetCross : carCross; // the suit aims like the robot
     reticle.visible = show && robot;
     jetCross.visible = show && d.mode === 'jet'; carCross.visible = show && d.mode === 'car';
     const hit = show && s8.hit > 0;
@@ -246,7 +246,7 @@ function drawVR(gn, gf, proj, view, eye, d, s8) {
   gn.clearRect(0, 0, W, H);
   gn.save(); gn.translate(W / 2, H / 2);
   if (!d.dead) {
-    if (d.mode === 'jet') place(gn, L.jet, () => jetCompact(gn, d));
+    if (d.mode === 'jet' || d.mode === 'suit') place(gn, L.jet, () => jetCompact(gn, d));
     else if (d.mode === 'car') place(gn, L.car, () => carCompact(gn, d));
     hurtArcs(gn, view, s8, L.hurtR);
   }
@@ -341,15 +341,15 @@ function headingTape(g, hdg) {
 }
 
 function modePanel(g, d, withName) {
-  ['robot', 'car', 'jet'].forEach((m, i) => {
+  ['robot', 'car', 'jet', 'suit'].forEach((m, i) => {
     const x = i * 50, on = m === d.mode;
     style(g, on ? COL.red : COL.dim, on ? 3 : 2);
     hexagon(g, x, 0, 20);
     if (on) { g.fillStyle = 'rgba(255,64,87,0.25)'; g.fill(); }
     g.stroke();
-    text(g, 'RCJ'[i], x, 1, 16, 'center', FONT, on ? COL.white : COL.dim);
+    text(g, 'RCJS'[i], x, 1, 16, 'center', FONT, on ? COL.white : COL.dim);
   });
-  if (withName) { style(g); text(g, MODE_NAME[d.mode], 140, 0, 16, 'left'); }
+  if (withName) { style(g); text(g, MODE_NAME[d.mode], 190, 0, 16, 'left'); }
 }
 
 function vitals(g, d, vr) {
@@ -596,7 +596,8 @@ function jetCompact(g, d) {
     text(g, unit, x + 16, -9, 11, 'left', FONT, COL.dim);
     text(g, small, x, 14, 13, 'center', MONO, smallColor);
   };
-  box(-150, String(Math.round(d.speed * 3.6)), 'KM/H', `THR ${Math.round(d.throttle * 100)}%${d.afterburner ? ' AB' : ''}`, d.afterburner ? COL.amber : COL.main);
+  const suit = d.mode === 'suit'; // the suit shows its palm jets' power and BOOST instead of throttle and AB
+  box(-150, String(Math.round(d.speed * 3.6)), 'KM/H', `${suit ? 'JETS' : 'THR'} ${Math.round(d.throttle * 100)}%${d.afterburner ? (suit ? ' BOOST' : ' AB') : ''}`, d.afterburner ? COL.amber : COL.main);
   box(150, String(Math.round(d.alt)), 'M', `VS ${d.vy >= 0 ? '+' : ''}${Math.round(d.vy)}`, COL.main);
   const flash = Math.sin(d.time * 12) > 0;
   if (d.stall && flash) text(g, 'STALL', 0, 70, 30, 'center', FONT, COL.red);

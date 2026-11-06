@@ -7,8 +7,8 @@ import { initPhysics, initDebris, kinematic, stepPhysics } from './physics.js';
 import { groundAt } from './collision.js';
 import { buildWorld } from './world.js';
 import { createTransformers } from './transformer.js';
-import { bodyQuat, transformTo, stepRobot, stepCar, stepJet, hitSphere, kinShape } from './vehicle.js';
-import { createFx } from './fx.js';
+import { bodyQuat, transformTo, stepRobot, stepCar, stepJet, stepSuit, SUIT, hitSphere, kinShape } from './vehicle.js';
+import { createFx, TILE } from './fx.js';
 import { createWeapons } from './weapons.js';
 import { createTraffic } from './traffic.js';
 import { createEnemies } from './enemies.js';
@@ -20,27 +20,32 @@ import { audioInit, engineSound, sfx, audio, toggleMusic, setPaused } from './au
 
 // Where your eyes sit (cockpit) or the camera floats (chase), in the body's frame; forward is -z.
 const EYE = { robot: V(0, 5.45, -0.1), car: V(0, 0.92, 0.6), jet: V(0, 1.95, -2.1) };
-const CHASE = { robot: V(0, 8, 13), car: V(0, 3.2, 8.5), jet: V(0, 6, 22) };
+EYE.suit = EYE.robot.clone().multiplyScalar(SUIT.scale); // the suit is the robot at human size
+const CHASE = { robot: V(0, 8, 13), car: V(0, 3.2, 8.5), jet: V(0, 6, 22), suit: V(0, 2.6, 5.5) };
+const humanoid = m => m === 'robot' || m === 'suit';
 const MUZZLE = { car: V(0.7, 0.5, -2.5), jet: V(0.55, 0.75, -4.0) };
 const HINTS = {
   vr: {
     robot: 'L-stick walk · R-stick turn · triggers fire · B jump/jets · R-stick up missile · X car · Y jet · hold L-stick: recenter',
     car: 'grips hold the wheel · R-trigger gas · L-trigger brake · B nitro · R-stick click fire · R-stick up missile · A robot · Y jet · hold L-stick: recenter',
     jet: 'R-grip flight stick (trigger fires) · L-grip throttle · B afterburner · R-stick up missile · A robot · X car · hold L-stick: recenter',
+    suit: 'triggers: palm jets (palms back: forward, palms down: up) · double-tap a trigger: boost · B boost · grips: repulsors · A robot',
   },
   pad: {
     robot: 'L-stick walk · R-stick turn · B jump/jets · RT fire · LB missile · X car · Y jet',
     car: 'RT gas · LT brake · L-stick steer · B nitro · RB fire · LB missile · A robot · Y jet',
     jet: 'L-stick fly · R-stick yaw · RT throttle · B afterburner · RB fire · LB missile · A robot',
+    suit: 'L-stick thrust · R-stick turn · B up · LT down · RT boost · RB repulsors · LB missile · A robot',
   },
   keys: {
     robot: 'WASD walk · arrows turn · Space jump/jets · F fire · G missile · 2 car · 3 jet · H help',
     car: 'W gas · S brake · A/D steer · Space nitro · F fire · G missile · 1 robot · 3 jet',
     jet: 'W/S pitch · A/D roll · Q/E yaw · Shift throttle · Space afterburner · F fire · G missile',
+    suit: 'WASD thrust · arrows turn · Space up · Ctrl down · Shift boost · F repulsors · G missile · 1 robot',
   },
 };
 // The card shown in the headset when you first put it on.
-const vrHelp = () => ['A ROBOT · X CAR · Y JET', 'TRIGGERS FIRE · B JUMP / BOOST', 'R-STICK UP: MISSILE', 'CAR: GRIP THE WHEEL · R-TRIGGER GAS',
+const vrHelp = () => ['A ROBOT · X CAR · Y JET', 'A AGAIN AS THE ROBOT: FLIGHT SUIT', 'SUIT: TRIGGERS ARE PALM JETS', 'TRIGGERS FIRE · B JUMP / BOOST', 'R-STICK UP: MISSILE', 'CAR: GRIP THE WHEEL · R-TRIGGER GAS',
   'JET: R-GRIP STICK · L-GRIP THROTTLE', 'HOLD L-STICK: RECENTER', `COMFORT: VIGNETTE ${settings.vignette.toUpperCase()} · SNAP ${settings.snap}°`];
 // In a headset, a transform blacks the view out and the eye jumps to the new seat once it is dark.
 const VR_CUT = 0.1;
@@ -149,13 +154,21 @@ function doTransform(m) {
   const vr = renderer.xr.isPresenting;
   // In a headset, drive or fly off the way you are looking: the body turns to your head now; the seat you
   // see turns with it at the cut, in the dark, and the recenter there faces you forward again.
-  if (vr && st.mode === 'robot') { st.yaw += st.lookYaw; st.lookYawS = 0; }
+  if (vr && humanoid(st.mode) && !humanoid(m)) { st.yaw += st.lookYaw; st.lookYawS = 0; }
   if (!transformTo(st, m)) return;
   if (m === 'jet') st.lever = 0; // the throttle starts at idle, wherever you last left it
+  setBodyScale(m === 'suit' ? SUIT.scale : 1);
   unit.startTransform();
   sfx.transform(); rumble(0.3, 0.6, 350);
   // dark by the time the eye jumps, VR_CUT from now (if it's already dark, it stays dark that long); recenter on the new seat
   if (vr) { comfort.blink(false, 0.05 + VR_CUT * comfort.fade); recenterIn = VR_CUT; }
+}
+// The suit is the robot at human size: changing size rebuilds the body (its parts then swing into the new form).
+function setBodyScale(k) {
+  if (st.scale === k) return;
+  st.scale = k;
+  unit.release(); unit = tf.spawn('player', k);
+  G.fx.sparks(hitSphere(st, V()).c, null, [0.6, 1.6, 2.4], 24, 8);
 }
 // A bad landing or a wall: the jet bails out into the robot and lands on its feet.
 function emergencyTransform() {
@@ -190,7 +203,7 @@ function die() {
   rumble(1, 1, 700);
 }
 function respawn() {
-  Object.assign(st, { dead: false, hp: MAX_HP, shield: 0, invuln: 3, mode: 'robot', prevMode: 'robot', T: 9, speed: 0, steer: 0, yaw: 0, grounded: true, eyeDrop: 0 });
+  Object.assign(st, { dead: false, hp: MAX_HP, shield: 0, invuln: 3, mode: 'robot', prevMode: 'robot', T: 9, speed: 0, steer: 0, yaw: 0, grounded: true, eyeDrop: 0, scale: 1 });
   st.pos.copy(SPAWN); st.vel.set(0, 0, 0); st.quat.identity(); st.tilt.identity();
   unit = tf.spawn('player', 1);
   kin.teleport(st.pos);
@@ -212,7 +225,7 @@ function lookDir(out = V()) {
   return out.set(0, 0, -1).applyQuaternion(yq(st.yaw + st.lookYawS));
 }
 function aimDir() {
-  if (st.mode === 'robot') return lookDir();
+  if (humanoid(st.mode)) return lookDir();
   return V(0, 0, -1).applyQuaternion(bodyQuat(st));
 }
 function fireMissile() {
@@ -238,6 +251,25 @@ function updateGuns(dt, inp) {
   for (const k in cool) cool[k] -= dt;
   if (st.dead || st.T < TTOTAL) return; // no shooting mid-transform
   const rate = st.power.rapid > 0 ? 0.45 : 1, vr = renderer.xr.isPresenting;
+  if (st.mode === 'suit') {
+    // In a headset each grip fires a repulsor out of that palm, the way the palm faces (so aim with an open hand).
+    for (const j of jets) {
+      if ((j.side === 'left' ? inp.gripL : inp.gripR) < 0.6 || cool[j.side] > 0) continue;
+      cool[j.side] = 0.2 * rate;
+      d3.copy(j.dirW).negate();
+      if (settings.view === 'chase') { // from the suit's fist, toward the point 80 m out from your palm
+        unit.partWorld(j.side === 'left' ? 'fistL' : 'fist', g3);
+        shoot(g3, d3.multiplyScalar(80).add(rig.localToWorld(j.posR.clone())).sub(g3).normalize(), st.vel);
+      } else shoot(rig.localToWorld(o3.copy(j.posR)).addScaledVector(d3, 0.08), d3, st.vel, 0.1);
+      buzz(j.side, 0.4, 25);
+    }
+    if (inp.fire && cool.right <= 0) { // the fire button: both fists, alternately, where you look
+      cool.right = 0.16 * rate;
+      shoot(unit.partWorld(st.gunSide > 0 ? 'fist' : 'fistL', o3), lookDir(d3), st.vel);
+      st.gunSide = -st.gunSide; rumble(0, 0.3, 40);
+    }
+    return;
+  }
   if (st.mode === 'robot') {
     for (const side of ['left', 'right']) {
       const h = hands[side];
@@ -262,6 +294,66 @@ function updateGuns(dt, inp) {
     o3.set(m.x * st.gunSide, m.y, m.z).applyQuaternion(bodyQuat(st)).add(st.pos);
     shoot(o3, V(0, 0, -1).applyQuaternion(bodyQuat(st)), st.vel, vr ? 0.5 : 1);
     rumble(0, 0.25, 40); buzz('right', 0.3, 20);
+  }
+}
+
+// ---------- the flight suit ----------
+// The palm jets this frame: { side, power, dirW (the way it pushes you, world), posR (the palm, rig frame) }.
+const jets = [], thrustW = V(), jetQ = new THREE.Quaternion();
+let jetsRig = []; // the same, as read from the controllers (rig frame), kept for the boost presses
+function suitThrust(inp, vr, dt) {
+  thrustW.set(0, 0, 0); jets.length = 0;
+  // boost: B in a headset, Shift / RT on a screen; it runs on the nitro meter (or freely with TURBO)
+  const want = vr ? inp.action : inp.trigR > 0.5, turbo = st.power.turbo > 0;
+  st.boosting = want && (st.nitro > 0.02 || turbo);
+  if (!turbo) st.nitro = st.boosting ? Math.max(0, st.nitro - dt * 0.25) : Math.min(1, st.nitro + dt * 0.08);
+  const gain = SUIT.thrust * (st.boosting ? 1.8 : 1);
+  let power = 0;
+  if (vr && inp.jets) {
+    jetsRig = inp.jets;
+    jetQ.copy(rig.quaternion); // the rig turns only about the vertical in the suit
+    for (const j of inp.jets) {
+      const dirW = j.dir.clone().applyQuaternion(jetQ);
+      thrustW.addScaledVector(dirW, gain * j.power);
+      jets.push({ side: j.side, power: j.power, dirW, posR: j.pos }); // posR: the palm in the rig's frame (the rig moves before it's used)
+      power = Math.max(power, j.power);
+    }
+  } else if (!vr) {
+    // on a screen: the stick or WASD pushes you the way you face, Space lifts, Ctrl sinks; in the air
+    // with nothing pressed the suit holds its height
+    const yaw = st.yaw + st.lookYawS, f = V(-Math.sin(yaw), 0, -Math.cos(yaw)), r = V(-f.z, 0, f.x);
+    thrustW.addScaledVector(f, -inp.my * gain * 1.4).addScaledVector(r, inp.mx * gain * 1.4);
+    thrustW.y += inp.action ? SUIT.grav * 1.8 : inp.trigL > 0.1 ? SUIT.grav * 0.3 : st.grounded ? 0 : SUIT.grav;
+    power = Math.min(1, thrustW.length() / (2 * SUIT.thrust));
+  }
+  st.throttle = power;
+  return thrustW;
+}
+// A double pull of a trigger: a burst from that hand, on the boost meter.
+function suitBoost(side) {
+  if (st.mode !== 'suit' || st.dead || (st.nitro < 0.15 && st.power.turbo <= 0)) return;
+  const j = jetsRig.find(x => x.side === side);
+  if (!j) return;
+  const dirW = j.dir.clone().applyQuaternion(rig.quaternion);
+  st.vel.addScaledVector(dirW, 12);
+  if (st.power.turbo <= 0) st.nitro -= 0.15;
+  G.fx.glow(rig.localToWorld(j.pos.clone()).addScaledVector(dirW, -0.3), 0.4, [1.5, 2.2, 2.8, 1], 0.12);
+  buzz(side, 0.8, 60); sfx.jump();
+}
+// Exhaust out of each palm (in the cockpit) or each fist (seen from the chase camera).
+const exhaust = V();
+function suitFlames(vr) {
+  const cockpit = vr && settings.view === 'cockpit';
+  const list = vr ? jets : [{ side: 'left', power: st.throttle, dirW: thrustW.clone().normalize() }, { side: 'right', power: st.throttle, dirW: thrustW.clone().normalize() }];
+  for (const j of list) {
+    if (!(j.power > 0.02) || !(j.dirW.lengthSq() > 0.5)) continue;
+    const at = cockpit ? rig.localToWorld(j.posR.clone()) : unit.partWorld(j.side === 'left' ? 'fistL' : 'fist', V());
+    exhaust.copy(j.dirW).multiplyScalar(-(18 + 22 * j.power)).add(st.vel); // out of the palm, away from the push
+    const size = (cockpit ? 0.05 : 0.35) * (0.6 + j.power) * (st.boosting ? 1.4 : 1);
+    for (let i = 0; i < 2; i++) {
+      G.fx.add.spawn({ pos: at.clone().addScaledVector(j.dirW, -0.03 - Math.random() * 0.05), vel: exhaust, size, size1: size * 0.25, life: 0.1 + Math.random() * 0.06,
+        color: st.boosting ? [2.4, 1.6, 0.8, 1] : [1.2, 2.0, 2.6, 0.9], tile: TILE.GLOW });
+    }
   }
 }
 
@@ -370,6 +462,8 @@ function handlePress(p) {
   else if (p === 'music') { audioInit(); say(toggleMusic() ? 'MUSIC ON' : 'MUSIC OFF', 1.2); sfx.click(); }
   else if (p === 'help') { settings.help = !settings.help; savePref('help', settings.help); showHelp(); }
   else if (p === 'missile') fireMissile();
+  else if (p === 'boostL' || p === 'boostR') suitBoost(p === 'boostL' ? 'left' : 'right');
+  else if (p === 'humanoid') doTransform(st.mode === 'robot' ? 'suit' : 'robot'); // A: the robot, and again for the suit
   else doTransform(p);
 }
 
@@ -400,7 +494,7 @@ function frame() {
   raw.presses.forEach(handlePress);
   const inp = st.dead ? { ...NO_INPUT } : raw;
   st.lookYaw = vr ? tmpE.setFromQuaternion(lookQ.multiplyQuaternions(rigInner.quaternion, camera.quaternion), 'YXZ').y : 0;
-  st.lookYawS += angleDiff(st.lookYawS, st.mode === 'robot' ? st.lookYaw : 0) * (1 - Math.exp(-6 * dt)); // the short way round
+  st.lookYawS += angleDiff(st.lookYawS, humanoid(st.mode) ? st.lookYaw : 0) * (1 - Math.exp(-6 * dt)); // the short way round
   for (const k in st.power) st.power[k] = Math.max(0, st.power[k] - dt);
   st.invuln = Math.max(0, st.invuln - dt);
   st.hurtT = Math.max(0, st.hurtT - dt * 1.5);
@@ -412,12 +506,16 @@ function frame() {
     const turbo = st.power.turbo > 0;
     // plough through props and traffic: knock them clear before moving into them; heavy things slow the car
     const ahead = st.pos.clone().addScaledVector(st.vel, dt * 2);
-    const knocked = G.props.knock(ahead, 1.8, st.vel, 8000, st.mode === 'robot' ? 6 : 2) + G.traffic.collide(ahead, 2, st.vel, 8000);
+    const knocked = G.props.knock(ahead, st.mode === 'suit' ? 0.8 : 1.8, st.vel, 8000, st.mode === 'robot' ? 6 : 2) + G.traffic.collide(ahead, 2, st.vel, 8000);
     if (knocked && st.mode === 'car') st.speed *= 1 - clamp(knocked / 40000, 0, 0.35);
     if (st.mode === 'robot') {
       const ev = stepRobot(st, dt, inp, { snapTurn: vr ? settings.snap * DEG : 0, turbo });
       if (ev.jumped) sfx.jump();
       if (ev.landed > 10) { sfx.thud(); rumble(0.7, 0.3, 160); G.fx.dust(st.pos, 3, 8, 0.6); }
+    } else if (st.mode === 'suit') {
+      const ev = stepSuit(st, dt, { ...inp, thrust: suitThrust(inp, vr, dt) }, { snapTurn: vr ? settings.snap * DEG : 0 });
+      st.jets = ev.thrusting;
+      if (ev.landed > 8) { sfx.thud(); rumble(0.5, 0.3, 120); G.fx.dust(st.pos, 1.2, 6, 0.6); }
     } else if (st.mode === 'car') {
       const ev = stepCar(st, dt, inp, { turbo });
       if (ev.wallSpeed > 15) { sfx.thud(); rumble(0.8, 0.5, 200); G.fx.sparks(st.pos.clone().add(V(0, 0.8, 0)), null, [2.5, 1.6, 0.6], 20, 10); damagePlayer(ev.wallSpeed * 0.15, null); }
@@ -440,6 +538,7 @@ function frame() {
   unit?.update(dt, st, bq, { throttle: st.throttle, afterburner: st.mode === 'jet' && st.boosting, nitro: st.mode === 'car' && st.boosting, jets: st.jets, gearDown },
     settings.view === 'cockpit', keepClear(bq, vr));
 
+  if (st.mode === 'suit' && !st.dead) suitFlames(vr);
   G.enemies.update(dt);
   G.traffic.update(dt, st.pos);
   G.props.update(dt);
@@ -459,16 +558,16 @@ function frame() {
     hurt: st.dead ? 0.5 : Math.max(st.hurtT * 0.6, hpFrac < 0.3 ? (0.25 + 0.15 * Math.sin(t * 6)) * (1 - hpFrac / 0.3) : 0),
   });
   const bodyFwd = V(0, 0, -1).applyQuaternion(bq);
-  const speed = st.mode === 'jet' ? st.vel.length() : Math.hypot(st.vel.x, st.vel.z) * (st.mode === 'car' && st.speed < 0 ? -1 : 1);
+  const speed = st.mode === 'jet' || st.mode === 'suit' ? st.vel.length() : Math.hypot(st.vel.x, st.vel.z) * (st.mode === 'car' && st.speed < 0 ? -1 : 1);
   const viewYaw = st.mode === 'jet' ? heldYaw : st.yaw; // which way the HUD and minimap face
   G.hud.update(dt, {
     mode: st.mode, time: t, pos: st.pos, heading: ((-viewYaw / DEG) % 360 + 360) % 360, viewYaw,
     speed: Math.abs(speed), reverse: speed < -0.5, alt, vy: st.vel.y,
-    throttle: st.throttle, afterburner: st.mode === 'jet' && st.boosting, gearDown,
+    throttle: st.throttle, afterburner: (st.mode === 'jet' || st.mode === 'suit') && st.boosting, gearDown,
     stall: st.mode === 'jet' && !st.grounded && st.speed < 45, pullUp: st.mode === 'jet' && st.vel.y < -5 && alt / -st.vel.y < 3.5,
     velDir: st.vel.clone().normalize(), bodyFwd,
     gear: Math.min(7, Math.floor(Math.abs(st.speed) / 22) + 1), rpm: (Math.abs(st.speed) % 22) / 22, nitro: st.nitro, boosting: st.mode === 'car' && st.boosting,
-    fuel: st.fuel / 2.5, jets: st.jets,
+    fuel: st.mode === 'suit' ? st.nitro : st.fuel / 2.5, jets: st.mode === 'suit' ? st.boosting : st.jets,
     hp: st.hp, hpFrac, shield: st.shield, missiles: st.missiles, power: st.power, hurt: st.hurtT,
     kills: st.kills, cash: st.cash, wave: G.enemies.wave, enemiesLeft: G.enemies.alive, dead: st.dead, respawnT: st.respawnT,
     msg: st.msg, music: settings.music, hint: HINTS[activeDevice(vr)][st.mode],
@@ -476,7 +575,8 @@ function frame() {
     enemies: G.enemies.list.filter(e => e.alive).map(e => { const c = G.enemies.center(e); return { pos: c, hp: e.hp / e.T.hp, type: e.type, dist: c.distanceTo(st.pos) }; }),
     pickups: G.powerups.items.filter(i => i.down <= 0).map(i => ({ pos: i.pos, color: '#' + POWER[i.kind].color.toString(16).padStart(6, '0') })),
   });
-  engineSound(st.dead ? 'robot' : st.mode, st.mode === 'robot' ? 0 : st.speed, st.mode === 'jet' ? st.throttle + (st.boosting ? 1 : 0) : Math.max(inp.trigR, st.boosting ? 1 : 0), Math.hypot(st.vel.x, st.vel.z) > 1);
+  engineSound(st.dead ? 'robot' : st.mode, st.mode === 'robot' ? 0 : st.mode === 'suit' ? st.vel.length() : st.speed,
+    st.mode === 'jet' || st.mode === 'suit' ? st.throttle + (st.boosting ? 1 : 0) : Math.max(inp.trigR, st.boosting ? 1 : 0), Math.hypot(st.vel.x, st.vel.z) > 1);
   // every frame in a headset (its shadows would step at half its frame rate), every other frame on a screen
   renderer.shadowMap.needsUpdate = vr || (frameNo++ & 1) === 0;
   renderer.render(scene, camera);

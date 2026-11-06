@@ -50,7 +50,7 @@ The help panel on the screen (H) has three headset settings, saved between visit
 
 | | |
 |---|---|
-| **Keyboard** | 1 robot · 2 car · 3 jet · Space jump / nitro / afterburner · F fire · G missile · C camera · M music · H help |
+| **Keyboard** | 1 robot · 2 car · 3 jet · 4 flight suit (WASD thrust, Space up, Ctrl down, Shift boost) · Space jump / nitro / afterburner · F fire · G missile · C camera · M music · H help |
 | robot | WASD + arrows |
 | car | W gas · S brake · A/D steer |
 | jet | W/S pitch · A/D roll · Q/E yaw · Shift throttle · Ctrl airbrake |
@@ -58,6 +58,7 @@ The help panel on the screen (H) has three headset settings, saved between visit
 | **Rift S** | A robot · X car · Y jet · B jump / nitro / afterburner · R-stick up missile · L-stick click: tap camera, hold recenter · both sticks music |
 | robot | L-stick walk · R-stick snap turn · triggers fire each hand |
 | car | grips hold the wheel, turn your hands to steer (or L-stick) · R-trigger gas · L-trigger brake · R-stick click fire |
+| suit | A again as the robot · triggers fire the palm jets: palms back fly forward, palms down lift, ease off to hover · double-tap a trigger: boost from that hand · B boost · grips: repulsors from your palms |
 | jet | R-grip holds the flight stick: tilt to pitch / roll, twist to yaw, trigger fires · L-grip holds the throttle, push forward |
 
 ## How it's put together

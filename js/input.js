@@ -6,7 +6,7 @@ import { sfx } from './audio.js';
 
 export const hands = {}; // 'left' | 'right' -> { ctrl, grip, gun, src, prev, clickT, held, combo, ... }
 const keys = new Set(), keyPresses = [];
-const KEY_PRESS = { Digit1: 'robot', Digit2: 'car', Digit3: 'jet', KeyC: 'camera', KeyM: 'music', KeyR: 'recenter', KeyH: 'help', KeyG: 'missile' };
+const KEY_PRESS = { Digit1: 'robot', Digit2: 'car', Digit3: 'jet', Digit4: 'suit', KeyC: 'camera', KeyM: 'music', KeyR: 'recenter', KeyH: 'help', KeyG: 'missile' };
 let rig, rigInner, pad = null, padSeen = -1e9, keysSeen = 0;
 const padPrev = [];
 
@@ -38,11 +38,12 @@ export function initInput(opts) {
     const ctrl = opts.renderer.xr.getController(i), grip = opts.renderer.xr.getControllerGrip(i);
     rigInner.add(ctrl, grip);
     // the fist follows the grip; the gun follows the aiming ray, so its barrel is the line the shots take
-    const gun = makeGun();
-    grip.add(makeFist()); ctrl.add(gun);
+    const gun = makeGun(), fist = makeFist();
+    grip.add(fist); ctrl.add(gun);
     ctrl.addEventListener('connected', e => {
-      ctrl.userData.side = e.data.handedness;
-      hands[e.data.handedness] = { ctrl, grip, gun, src: e.data, prev: [], clickT: 0, held: false, combo: false };
+      const side = e.data.handedness;
+      ctrl.userData.side = side;
+      hands[side] = { ctrl, grip, gun, palm: fist.userData.palms[side], src: e.data, prev: [], clickT: 0, held: false, combo: false, tapT: -1e9, trigDown: false };
     });
     ctrl.addEventListener('disconnected', () => { if (hands[ctrl.userData.side]?.ctrl === ctrl) delete hands[ctrl.userData.side]; });
   }
@@ -53,8 +54,16 @@ function makeFist() {
   const g = new THREE.Group();
   const fist = new THREE.Mesh(box, handMat.dark); fist.scale.set(0.09, 0.1, 0.13); g.add(fist);
   const knuckles = new THREE.Mesh(box, handMat.red); knuckles.scale.set(0.095, 0.03, 0.08); knuckles.position.set(0, 0.055, -0.02); g.add(knuckles);
+  // the suit's palm jets: a disc on the palm, which faces -x on the right hand and +x on the left (grip space)
+  g.userData.palms = {};
+  for (const [side, sx] of [['right', -1], ['left', 1]]) {
+    const disc = new THREE.Mesh(palmGeo, new THREE.MeshBasicMaterial({ color: 0x40e0ff, transparent: true }));
+    disc.rotation.z = Math.PI / 2; disc.position.x = sx * 0.047; disc.visible = false;
+    g.add(disc); g.userData.palms[side] = disc;
+  }
   return afterHud(g);
 }
+const palmGeo = new THREE.CylinderGeometry(0.03, 0.03, 0.006, 20);
 export const GUN_TIP = 0.25; // metres from the aiming ray's origin to the muzzle
 function makeGun() {
   const g = new THREE.Group();
@@ -92,6 +101,9 @@ function readTouch(inp, dt) {
     const down = i => !!gp.buttons[i]?.pressed, val = i => gp.buttons[i]?.value ?? 0;
     const edge = (i, name) => { if (down(i) && !h.prev[i]) inp.presses.push(name); h.prev[i] = down(i); };
     const ax = gp.axes[2] ?? 0, ay = gp.axes[3] ?? 0, [sx, sy] = stick(ax, ay, 0.12);
+    const trig = val(0) > 0.6, now = performance.now();
+    if (trig && !h.trigDown) { if (now - h.tapT < 300) inp.presses.push(side === 'left' ? 'boostL' : 'boostR'); h.tapT = now; }
+    h.trigDown = trig;
     if (side === 'left') {
       inp.mx = sx; inp.my = sy; inp.trigL = val(0); inp.gripL = val(1);
       edge(4, 'car'); edge(5, 'jet');
@@ -111,7 +123,7 @@ function readTouch(inp, dt) {
       if (down(3)) { h.clickN = (h.clickN ?? 0) + 1; if (clicked('left')) h.noFire = true; }
       else { h.clickN = 0; h.noFire = false; }
       inp.fire = down(3) && h.clickN > 3 && !h.noFire;
-      edge(4, 'robot');
+      edge(4, 'humanoid');
       // push the right stick forward to fire a missile
       const up = ay < -0.8;
       if (up && !h.stickUp) inp.presses.push('missile');
@@ -134,7 +146,7 @@ function readPad(inp) {
   if (st.mode === 'robot') inp.fire ||= v(7) > 0.5 || b(5);
   else { inp.trigR = Math.max(inp.trigR, v(7)); inp.trigL = Math.max(inp.trigL, v(6)); inp.fire ||= b(5); }
   inp.action ||= b(1);
-  for (const [i, name] of [[0, 'robot'], [2, 'car'], [3, 'jet'], [4, 'missile'], [8, 'camera'], [9, 'music'], [10, 'recenter']]) {
+  for (const [i, name] of [[0, 'humanoid'], [2, 'car'], [3, 'jet'], [4, 'missile'], [8, 'camera'], [9, 'music'], [10, 'recenter']]) {
     if (b(i) && !padPrev[i]) inp.presses.push(name);
     padPrev[i] = b(i);
   }
@@ -145,11 +157,12 @@ function readKeys(inp) {
   if (st.mode === 'car') { inp.trigR = Math.max(inp.trigR, k('KeyW') || k('ArrowUp')); inp.trigL = Math.max(inp.trigL, k('KeyS') || k('ArrowDown')); }
   else inp.my ||= k('KeyS') - k('KeyW');
   inp.mx ||= k('KeyD') - k('KeyA');
-  if (st.mode === 'jet') {
+  if (st.mode === 'jet' || st.mode === 'suit') {
     inp.trigR = Math.max(inp.trigR, k('ShiftLeft') || k('ShiftRight'));
     inp.trigL = Math.max(inp.trigL, k('ControlLeft'));
-    inp.rx ||= k('KeyE') - k('KeyQ');
-  } else inp.rx ||= k('ArrowRight') - k('ArrowLeft');
+  }
+  if (st.mode === 'jet') inp.rx ||= k('KeyE') - k('KeyQ');
+  else inp.rx ||= k('ArrowRight') - k('ArrowLeft');
   inp.action ||= !!k('Space');
   inp.fire ||= !!k('KeyF');
 }
@@ -219,6 +232,21 @@ function motionControls(inp) {
   if (R) handPose(R, pR, qR);
   wheelMesh.visible = stickGroup.visible = leverGroup.visible = false;
   for (const h of [L, R]) if (h) h.gun.visible = st.mode === 'robot'; // the hand guns only fire as a robot
+
+  // Flight suit: each palm is a jet. It pushes you toward the back of that hand (palms back: forward;
+  // palms down: up) as hard as its trigger is pulled. Grip space's +x comes out of the back of the
+  // right hand and -x out of the back of the left (WebXR).
+  inp.jets = null;
+  if (st.mode === 'suit') {
+    inp.jets = [];
+    for (const [h, side, p, q, trig] of [[L, 'left', pL, qL, inp.trigL], [R, 'right', pR, qR, inp.trigR]]) {
+      if (!h) continue;
+      const power = clamp((trig - 0.05) / 0.95, 0, 1);
+      inp.jets.push({ side, power, pos: p.clone(), dir: V(side === 'right' ? 1 : -1, 0, 0).applyQuaternion(q) });
+      h.palm.material.color.setRGB(0.25 + 0.75 * power, 0.88 + 0.12 * power, 1);
+    }
+  }
+  for (const h of [L, R]) if (h) h.palm.visible = st.mode === 'suit';
 
   if (st.mode === 'car' && (holdL || holdR)) {
     // Both hands: the tilt of the line between them. One hand: how far it has rolled since grabbing.

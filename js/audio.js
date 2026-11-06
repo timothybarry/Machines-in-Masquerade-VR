@@ -112,6 +112,7 @@ export function engineSound(mode, speed, throttle, moving) {
   const t = actx.currentTime, v = Math.abs(speed);
   let f = 30, g = 0, nf = 200, ng = 0;
   if (mode === 'car') { f = 55 + (v % 22) / 22 * 110 + v * 0.6; g = 0.05 + throttle * 0.06; nf = 300; ng = 0.02; } // gears
+  else if (mode === 'suit') { f = 70 + v * 0.25; g = 0.015 + throttle * 0.03; nf = 600 + throttle * 2600; ng = throttle * 0.11; } // palm jets: a hiss and a roar
   else if (mode === 'jet') { f = 38 + v * 0.1; g = 0.03; nf = 300 + throttle * 1800; ng = 0.05 + throttle * 0.08; }
   else if (moving) g = 0.02;
   eOsc.frequency.setTargetAtTime(f, t, 0.05); eGain.gain.setTargetAtTime(g, t, 0.1);
